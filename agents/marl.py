@@ -112,13 +112,14 @@ class MultiRLAgent(object):
         """
         return self.sample(environment_state)
 
-    def store(self, environment_state, output_actions, environment_next_state, reward, eval=False):
+    def store(self, environment_state, output_actions, environment_next_state, reward, terminal, eval=False):
         """Stores transitions from the most recent set of communication turns and output. 
            Args:
             environment_state: input environment_state.
             output_actions: output actions from the multi-agent RL agent.
             environment_next_state: next environment state.
             reward: reward obtained from environment.
+            terminal: whether or not current transition led to terminal state.
             eval: whether current episode is an eval episode.
         """
         if not eval:
@@ -131,11 +132,14 @@ class MultiRLAgent(object):
 
                     if comm_turn < self._num_communication_turns - 1:
                         next_state = self._communication_states[comm_turn + 1][i]
-                        controller.store(curr_state, controller_action, next_state, 0)
+                        communication_reward = 0
+                        communication_terminal = False
+                        controller.store(
+                            curr_state, controller_action, next_state, communication_reward, communication_terminal)
                     else:
                         ####Fill this part in!!! - Need to construct this using the next environment state.
                         next_state = np.copy(curr_state)
-                        controller.store(curr_state, controller_action, next_state, reward)
+                        controller.store(curr_state, controller_action, next_state, reward, terminal)
 
     def update(self):
         """Updates all the controllers."""
