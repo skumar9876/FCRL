@@ -62,11 +62,14 @@ class MultiRLAgent(object):
             # Add the controller ordering vector to the controller's state representation.
             agents_states[i].append(np.copy(controller_ordering_vector))
             # Add the communication turn vector (placeholder containing zeros) to the controller's state representation.
-            agents_states[i].append(np.zeros(self._num_communication_turns * self._num_actions))
+            agents_states[i].append(
+                np.zeros(self._num_communication_turns * self._num_actions))
 
-        self._communication_states = np.zeros((self._num_communication_turns, self._num_agents, self._state_size))
+        self._communication_states = np.zeros((
+            self._num_communication_turns, self._num_agents, self._state_size))
         self._communication_states[0] = np.copy(agent_states)
-        self._communication_actions = np.zeros((self._num_communication_turns, self._num_agents))
+        self._communication_actions = np.zeros(
+            (self._num_communication_turns, self._num_agents))
 
         for comm_turn in xrange(self._num_communication_turns):
             # communication_actions_curr_turn stores the output actions for the current turn.
@@ -79,12 +82,15 @@ class MultiRLAgent(object):
             # Compute the averaged communication vector in avg_comm_vector.
             for i in xrange(self._num_agents):
                 if eval:
-                    communication_actions_curr_turn[i] = self._agents[i].best_action(self._communication_states[comm_turn][i])
+                    communication_actions_curr_turn[i] = self._agents[i].best_action(
+                        self._communication_states[comm_turn][i])
                 else:
-                    communication_actions_curr_turn[i] = self._agents[i].sample(self._communication_states[comm_turn][i])
-                avg_comm_vector[i][communication_actions_curr_turn[i]] += 1
+                    communication_actions_curr_turn[i] = self._agents[i].sample(
+                        self._communication_states[comm_turn][i])
+                avg_comm_vector[i][communication_actions_curr_turn[i]] += 1.0
             avg_comm_vector /= self._num_agents
-            self._communication_actions[comm_turn] = np.copy(communication_actions_curr_turn)
+            self._communication_actions[comm_turn] = np.copy(
+                communication_actions_curr_turn)
 
             # Construct the next intermediate state for each agent.
             next_turn_agent_states = []
@@ -112,7 +118,8 @@ class MultiRLAgent(object):
         """
         return self.sample(environment_state)
 
-    def store(self, environment_state, output_actions, environment_next_state, reward, terminal, eval=False):
+    def store(self, environment_state, output_actions, 
+        environment_next_state, reward, terminal, eval=False):
         """Stores transitions from the most recent set of communication turns and output. 
            Args:
             environment_state: input environment_state.
@@ -137,7 +144,7 @@ class MultiRLAgent(object):
                         controller.store(
                             curr_state, controller_action, next_state, communication_reward, communication_terminal)
                     else:
-                        ####Fill this part in!!! - Need to construct this using the next environment state.
+                        ####TODO: Construct the next controller state using the next environment state.
                         next_state = np.copy(curr_state)
                         controller.store(curr_state, controller_action, next_state, reward, terminal)
 
