@@ -60,7 +60,10 @@ class EventScheduling(object):
 
 	def step(self, output_schedule):
 		self.time_step += 1
-		return self.score(output_schedule)
+
+		terminal = (self.score(output_schedule) == 1) or (self.time_step >= self.max_iterations)
+
+		return self.score(output_schedule), terminal
 	
 	def score(self, output_schedule):
 		"""Returns the score for a given output schedule. 
