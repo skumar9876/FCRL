@@ -7,15 +7,17 @@ class EventScheduling(object):
 	Kumar et al. (https://arxiv.org/abs/1712.08266) 
 	"""
 
-	def __init__(self, num_agents=4, num_times=8):
+	def __init__(self, num_agents=4, num_times=8, max_iterations=10):
 		"""Initializes a event scheduling environment.
 
 		   Args:
 		   	num_agents: the number of events that need to be scheduled.
 		   	num_times: the number of possible times for each event.
+		   	max_iterations: max number of tries agent has to output a valid schedule.
 		"""
 		self.num_agents = num_agents
 		self.num_times = num_times
+		self.max_iterations = max_iterations
 
 	def reset(self):
 		"""Resets the environment.
@@ -24,11 +26,13 @@ class EventScheduling(object):
 		   	database_arr: array containing each controller's database.
 		   	ordering: ordering of controllers.
 		"""
+		self.time_step = 0
+
 		times = np.arange(self.num_times)
 		# Generate a possible output ordering of times. 
 		possible_ordering = np.sort(random.sample(times, self.num_agents))
 		# Generate a controller ordering.
-		self.controller_ordering = np.arange(self._num_agents)
+		self.controller_ordering = np.arange(self.num_agents)
 		np.random.shuffle(self.controller_ordering)
 
 		# Based on the controller ordering and possible times output,
@@ -53,6 +57,10 @@ class EventScheduling(object):
 				curr_controller + 1)] = np.copy(database)
 
 		return np.copy(self.databases), np.copy(self.controller_ordering)
+
+	def step(self, output_schedule):
+		self.time_step += 1
+		return self.score(output_schedule)
 	
 	def score(self, output_schedule):
 		"""Returns the score for a given output schedule. 
@@ -61,8 +69,10 @@ class EventScheduling(object):
 			 output_schedule: the proposed schedule.
 
 			Returns:
-			 score: +1 if schedule is valid, -1 if invalid.
+			 score: +1 if schedule is valid, 0 otherwise.
 		"""
+		if self.time_step >= self.max_iterations:
+			return 0
 
 		# Checks whether output schedule is complete or incomplete. 
 		# Output schedule is incomplete if its length is not equal to the number of agents.
