@@ -86,17 +86,67 @@ class EventScheduling(object):
 		# Checks that the output schedule is in strictly increasing order
 		# according to the controller ordering and that each output time
 		# is in the corresponding controller's database.
-		val = output_schedule[self.controller_ordering[0]]
-
+		val = -1
 		for i in xrange(len(output_schedule)):
 			controller_index = self.controller_ordering[i]
 
-			if val > output_schedule[controller_index] or (
-				i >= 1 and val >= output_schedule[controller_index]):
+			if val >= output_schedule[controller_index]:
 				return 0
 
 			elif not self.databases[controller_index][output_schedule[controller_index]]:
-					return 0
+				return 0
 
 			val = output_schedule[controller_index]
+
 		return 1
+
+def critic_function(databases, constraints, orderings, selected_times):
+	"""Provides intrinsic reward for subset of controller output times - used for FCRL agent.
+
+	   Args:
+	   	databases: The controllers' databases.
+	   	contraints: The constraints selected by the meta-controller.
+	   	orderings: The position vectors of the controllers.
+	   	selected_times: The times selected by the controllers.
+
+	   Returns:
+	   	1 if selected times satsify both the databases & constraints and are in the correct order,
+	   	0 otherwise.
+	"""
+
+    # Checks that each selected time is in the corresponding controller's database plus constraint.
+    for i in xrange(len(databases)):
+        database_plus_constraint = np.logical_and(databases[i], constraints[i]).astype(int)
+        if not database_plus_constraint[selected_times[i]]:
+            return 0
+
+    controller_ordering = np.zeros(len(orderings))
+    # Checks that the times are in strictly increasing order with respect to the controller ordering.
+    for i in xrange(len(orderings)):
+    	ordering = orderings[i]
+    	controller_index = ordering.index(1)
+    	controller_ordering[controller_index] = i
+
+    val = -1
+    for controller_index in xrange(len(controller_ordering)):
+    	if val >= selected_times[controller_ordering[controller_index]]:
+    		return 0
+    	val = selected_times[controller_ordering[controller_index]]
+
+    return 1
+
+def get_next_controller_pair(controller_ordering, done_controllers):
+	"""
+	Returns the next controller pair given a list of completed controllers.
+
+	Args:
+	 controller_ordering: The ordering of all the controllers.
+	 done_controllers: The controllers which have been used so far.
+
+	Returns:
+	 controller_pair: Array of indices of the next two controllers.
+	"""
+	last_controller = done_controllers[-1]
+	last_controller_index = controller_ordering.index(last_controller)
+
+	return controller_ordering[last_controller_index + 1:last_controller_index + 3]
