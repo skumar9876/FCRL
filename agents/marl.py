@@ -13,15 +13,13 @@ class MultiRLAgent(object):
         num_agents,
         state_size,
         num_actions,
-        num_communication_turns,
-        controller_ordering):
+        num_communication_turns):
         """Initializes a multi-agent RL agent. Used as a baseline in the FCRL experiments.
         Args:
             num_agents: Number of agents / controllers.
             state_size: The base size of each agent's state.
             num_actions: The number of actions. 
             num_communication_turns: Number of turns for which the agents communicate.
-            controller_ordering: Ordering of controllers.
         """
 
         self._num_agents = num_agents
@@ -29,7 +27,6 @@ class MultiRLAgent(object):
         self._num_communication_turns = num_communication_turns
         self._base_state_size = state_size
         self._state_size = state_size + self._num_communication_turns * self._num_actions
-        self._controller_ordering = controller_ordering
 
         # Initialize the agents.
         self._agents = []
@@ -42,10 +39,11 @@ class MultiRLAgent(object):
 
         self._communication_states = None
 
-    def sample(self, environment_state, eval=False):
+    def sample(self, environment_state, controller_ordering, eval=False):
         """Return a sampled set of output actions from all agents.
            Args:
             environment_state: The environment state.
+            controller_ordering: The desired ordering of controllers' outputs.
             eval: Whether or not this an evaluation episode.
            Returns:
             output_actions - a set of output actions from all agents.
@@ -55,7 +53,7 @@ class MultiRLAgent(object):
 
         for i in xrange(self._num_agents):
             # Construct one-hot vector indicating the controller's position in the controller ordering.
-            controller_ordering = list(self._controller_ordering)
+            controller_ordering = list(controller_ordering)
             controller_position = controller_ordering.index(i)
             controller_ordering_vector = np.zeros(self._num_agents)
             controller_ordering_vector[controller_position] = 1
