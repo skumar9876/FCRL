@@ -33,7 +33,7 @@ class FederatedControlAgent(object):
             num_primitive_actions: number of actions for the controller.
             num_controllers: total number of controllers. 
             num_controllers_per_subtask: the number of controllers that coordinate to complete a given subtask.
-            num_communication_turns: the number of turns that controllers communicate.
+            num_communication_turns: the number of turns for which controllers communicate.
             critic_fn: a custom critic function for a particular environment.
             controller_subset_fn: a custom function that returns the next controller subset.
         """
@@ -141,12 +141,36 @@ class FederatedControlAgent(object):
         return self._critic_fn(
             controller_states, constraints, orderings, selected_actions)
 
+    def construct_orderings(self):
+        orderings = []
+        for i in xrange(np.size(self._num_controllers_per_subtask)):
+            ordering = np.zeros(self._num_controllers_per_subtask)
+            ordering[i] = 1
+            orderings.append(ordering)
+        return orderings
+
+    def controller_bookkeeping_vars(self):
+        """
+        Returns initilizations for controller states, actions, communications, and outputs.
+        """
+        # Keeps track of all the controller states.
+        controller_states = np.zeros(
+            self._num_communication_turns + 1, self._num_controllers, self._controller_state_size)
+        # Keeps track of all controllers' selected actions (communication + output).
+        controller_actions = np.zeros(
+            self._num_communication_turns, self._num_controllers, 1)
+        # List that will contain the output actions.
+        output_actions = []
+
+        return controller_states, controller_actions, output_actions
+
     def sample(self, environment_state, controller_ordering, eval=False):
         """Samples a (possibly incomplete) output set of controller actions.
         
         Args:
          environment_state: The state provided by the environment.
          controller_ordering: the ordering of controllers specified by the environment.
+         eval: Whether this is a train / test episode.
 
         """
         meta_controller_state = self.get_meta_controller_state()
@@ -159,6 +183,7 @@ class FederatedControlAgent(object):
             constraint = self._meta_controller.best_action(meta_controller_state)
 
         self._tried_constraints[constraint] = 1
+        self._curr_constraint = constraint
 
         controller_environment_states = self.get_controller_environment_states(
             environment_state)
@@ -166,35 +191,27 @@ class FederatedControlAgent(object):
         controller_subset = self._controller_subset_fn(
             controller_ordering, self._done_controllers)
 
-        orderings = []
-        for i in xrange(np.size(self._num_controllers_per_subtask)):
-            ordering = np.zeros(self._num_controllers_per_subtask)
-            ordering[i] = 1
-            orderings.append(ordering)
+        orderings = self.construct_orderings()
 
-        # Keeps track of all the controller states.
-        controller_states = np.zeros(
-            self._num_communication_turns + 1, self._num_controllers, self._controller_state_size)
-        # Keeps track of all controllers' selected actions (communication + output).
-        controller_actions = np.zeros(
-            self._num_communication_turns, self._num_controllers, 1)
-        # Keeps track of communication vector received from other controller(s) in the controller subset.
-        communication_vector = None
-        output_actions = []
+        controller_states, controller_actions, output_actions = self.controller_bookkeeping_vars()
 
         # Note: Currently only works when the subsets contain only 2 controllers due to the way 
         # in which communication vectors are appended to the controller states.
-        for comm_turn in xrange(self._num_communication_turns):
+        previous_turn_communication_vectors = [None, None]  # The latest communication vectors.
+        for comm_turn in xrange(self._num_communication_turns + 1):
+
             communication_vectors = np.zeros(
                 self._num_controllers_per_subtask, self._num_primitive_actions)
+
             for i in xrange(np.size(controller_subset)):
                 ordering = orderings[i]
 
-                controller_index = controller_subset[i]
                 # Construct the controller state.
+                controller_index = controller_subset[i]
                 env_state = controller_environment_states[controller_index]
+                prev_comm_vector = previous_turn_communication_vectors[(i+1) % self._num_controllers_per_subtask]
                 controller_state = self.get_controller_state(
-                    env_state, constraint, ordering, comm_turn, communication_vector)
+                    env_state, constraint, ordering, comm_turn, prev_comm_vector)
 
                 controller_states[comm_turn][i] = controller_state
 
@@ -208,28 +225,33 @@ class FederatedControlAgent(object):
                 communication_vector = np.zeros(self._num_primitive_actions)
                 communication_vector[action] = 1
                 communication_vectors[i] = communication_vector
+                previous_turn_communication_vectors[i] = communication_vector
 
                 if comm_turn == self._num_communication_turns - 1:
                     output_actions.append(action)
 
-            if comm_turn == self._num_communication_turns - 1:
-                for i in xrange(np.size(controller_subset)):
-                    controller_index = controller_subset[i]
-                    # Construct the controller state.
-                    env_state = controller_environment_states[controller_index]
-                    controller_state = self.get_controller_state(
-                        env_state, constraint, ordering, comm_turn, communication_vector)
-
         # Compute the intrinsic reward that all the controllers in the controller
         # subset receive.
-        intrinsic_reward = self._critic_fn(
+        self._intrinsic_reward = self._critic_fn(
             controller_environment_states, constraint, orderings, output_actions)
 
         # Store the controller transitions.
-        if not eval:
+        for comm_turn in xrange(self._num_communication_turns):
+            for i in xrange(np.size(controller_subset)):
+                controller_state = controller_states[comm_turn][i]
+                controller_action = controller_actions[comm_turn][i]
+                controller_next_state = controller_states[comm_turn + 1][i]
+                controller_reward = 0
+                controller_terminal = False
+                if comm_turn == self._num_communication_turns - 1:
+                    controller_reward = intrinsic_reward
+                    controller_terminal = True
+
+                self._controller.store(controller_state, controller_action, 
+                    controller_reward, controller_next_state, controller_terminal, eval)
 
         # Reset/Update bookkeeping variables.
-        if intrinsic_reward:
+        if self._intrinsic_reward:
             for controller in controller_subset:
                 self._done_controllers.append(controller)
             self._tried_constraints = self.reset_tried_constraints()
@@ -239,8 +261,8 @@ class FederatedControlAgent(object):
     def best_action(self, environment_state):
         return self.sample(environment_state, eval=True)
 
-    def store(self, state, selected_times, reward, next_state, terminal, eval=False):
-        """Stores the current transition in replay memory.
+    def store(self, state, output_actions, reward, next_state, terminal, eval=False):
+        """Stores the current transition in the meta-controller's replay memory.
            The transition is stored in the replay memory of the controller.
            If the transition culminates in a subgoal's completion or a terminal state, a
            transition for the meta-controller is constructed and stored in its replay buffer.
@@ -253,38 +275,15 @@ class FederatedControlAgent(object):
             eval: whether the current episode is a train or eval episode.
         """
 
-        # Compute the controller state, reward, next state, and terminal.
-        intrinsic_state = np.copy(self.get_controller_state(state, self._curr_subgoal))
-        intrinsic_next_state = np.copy(self.get_controller_state(next_state, self._curr_subgoal))
-        intrinsic_reward = self.intrinsic_reward(next_state, self._curr_subgoal)
-        subgoal_completed = self.subgoal_completed(next_state, self._curr_subgoal)
-        intrinsic_terminal = subgoal_completed or terminal
-
-        # Store the controller transition in memory.
-        self._controller.store(intrinsic_state, action,
-            intrinsic_reward, intrinsic_next_state, intrinsic_terminal, eval)
-
+        curr_meta_controller_state = self._meta_controller_states()[-1]
+        action = self._curr_constraint
+        next_meta_controller_state = self.get_meta_controller_state()
         self._meta_controller_reward += reward
 
-        if terminal and not eval:
-            self._episode += 1
+        self._meta_controller.store(curr_meta_controller_state, self._curr_constraint, 
+            self._meta_controller_reward, next_meta_controller_state, terminal, eval)
 
-        if subgoal_completed or terminal:
-
-            # Store the meta-controller transition in memory.
-            meta_controller_state = np.copy(self._meta_controller_state)
-            next_meta_controller_state = np.copy(self.get_meta_controller_state(next_state))
-            
-            self._meta_controller.store(meta_controller_state, self._curr_subgoal,
-                self._meta_controller_reward, next_meta_controller_state,
-                terminal, eval)
-
-            # Reset the current meta-controller state and current subgoal to be None
-            # since the current subgoal is finished. Also reset the meta-controller's reward.
-            self._meta_controller_state = None
-            self._curr_subgoal = None
-            self._meta_controller_reward = 0
-            self._intrinsic_time_step = 0
+        self._meta_controller_state = None
 
     def update(self):
         self._controller.update()
