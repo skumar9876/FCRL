@@ -51,7 +51,8 @@ class DqnAgent(object):
 
     def _q_network(self, state):
 
-        layer1 = tf.contrib.layers.fully_connected(state, 64, activation_fn=tf.nn.relu)
+        layer1 = tf.contrib.layers.fully_connected(state, 100, activation_fn=tf.nn.tanh)
+        layer2 = tf.contrib.layers.fully_connected(layer1, 50, activation_fn=tf.nn.tanh)
         q_values = tf.contrib.layers.fully_connected(layer1, self._num_actions, activation_fn=None)
 
         return q_values
